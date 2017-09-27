@@ -8,9 +8,6 @@
 # covariates in mu, sigma and phi
 ##################################################################
 
-# Set working directory, containing dynamic_model.r 
-rm(list = ls())
-setwd("C:/Users/boa10gb/Documents/R/Climate")
 # Load file containing functions to fit the model
 source("dynamic_model.r")
 
@@ -27,20 +24,21 @@ nY <- 6
 # Set parameter values (here we assume the seasonal pattern to be the same across different sites and years) 
 mu.t <- 60
 sigma.t <- 10
-a.t <- dnorm(1:nT,mu.t,sigma.t)
+a.t <- dnorm(1:nT, mu.t, sigma.t)
 # Initial abundance values
-N1.t <- rpois(nS,150)
+N1.t <- rpois(nS, 150)
 # Productivity e.g. here we assume it varies with year but not site
-rho.t <- seq(.75,1.5,length.out=nY-1)
+rho.t <- seq(.75, 1.5, length.out = nY - 1)
 
 # Simulate data
-y <- array(NA,c(nY,nT,nS))
-y[1,,] <- matrix(rpois(nT*nS,rep(N1.t,each=nT)*a.t),nrow=nT,ncol=nS)
-y[2,,] <- matrix(rpois(nT*nS,rep(N1.t,each=nT)*rho.t[1]*a.t),nrow=nT,ncol=nS)
-for(kyear in 3:nY){
-  y[kyear,,] <- matrix(rpois(nT*nS,rep(N1.t,each=nT)*prod(rho.t[1:(kyear-1)])*a.t),nrow=nT,ncol=nS)}
+y <- array(NA, c(nY, nT, nS))
+y[1, , ] <- matrix(rpois(nT * nS, rep(N1.t, each = nT) * a.t), nrow = nT, ncol = nS)
+y[2, , ] <- matrix(rpois(nT * nS, rep(N1.t, each = nT) * rho.t[1] * a.t), nrow = nT, ncol = nS)
+
+for (kyear in 3:nY) {
+  y[kyear, , ] <- matrix(rpois(nT * nS, rep(N1.t, each = nT) * prod(rho.t[1:(kyear - 1)]) * a.t),nrow = nT, ncol = nS)}
 # Create missing values		
-y[sample(1:(nY*nT*nS),.3*nY*nT*nS)] <- NA
+y[sample(1:(nY * nT * nS), .3 * nY * nT * nS)] <- NA
 
 ################################################
 # Model fitting
@@ -80,7 +78,7 @@ sigma.m <- "const"
 # Specify number of random starts 
 nstart <- 3
 # Covariate for rho
-rho1_cov1 <- matrix(scale(1:(nY-1)),nrow=nS,ncol=nY-1,byrow=TRUE)
+rho1_cov1 <- matrix(scale(1:(nY - 1)), nrow = nS, ncol = nY - 1, byrow = TRUE)
 # Fit the specfied dynamic model
 output <- fit_dynamic()
 
