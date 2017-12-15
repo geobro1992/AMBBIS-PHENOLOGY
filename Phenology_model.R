@@ -7,6 +7,9 @@ library(lattice)
 library(DHARMa)
 library(astsa)
 library(vcd)
+library(plotly)
+library(visreg)
+library(AICcmodavg)
 
 # automated format check and debug tool
 lint("Phenology_model.R")
@@ -24,7 +27,11 @@ df <- na.omit(df)
 
 # subset by species code
 Code <- factor("AMBBIS", levels = levels(df$Species))
-cap.dates <- subset(df, df$Species == Code & df$Direction.of.Travel == "IN")
+cap.dates <- subset(df, df$Species == Code)
+
+#& df$Direction.of.Travel == "OUT" & df$Direction.of.Travel == "IN"
+
+
 # get counts
 cap.dates <- hist(cap.dates[, 1], breaks = 1000, freq = T)
 cap.dates <- data.frame(as.Date(cap.dates$mids, origin = "1970-01-01"),
@@ -91,7 +98,7 @@ for (i in 1:length(all.data$jds)) {
   }
 }
 
-all.data$jds <- all.data$jds - 255
+all.data$jds <- all.data$jds - 254
 min(all.data$jds)
 
 
@@ -108,51 +115,67 @@ plot(all.data$Date, prop, type = "h",
 
 # Null Model
 fit0 <- glm.nb(Count ~ 1, all.data)
+fit0p <- glm(Count ~ 1, all.data, family = "poisson")
+# Poisson Model
+fit10 <- glm(Count ~ ppt + tmin + ppt * tmin + jds + year, all.data,
+            family = "poisson")
+fit11 <- glm(Count ~ ppt + tmin + ppt * tmin + jds, all.data,
+            family = "poisson")
+fit12 <- glm(Count ~ ppt + tmin + ppt * tmin, all.data,
+            family = "poisson")
+fit13 <- glm(Count ~ ppt + tmin, all.data,
+            family = "poisson")
+fit14 <- glm(Count ~ ppt + tmin + jds + year, all.data,
+            family = "poisson")
+fit15 <- glm(Count ~  ppt + tmin + ppt * tmin + jds + year + I(jds^2), all.data, family = "poisson")
+fit1 <- glm(Count ~ ppt + tmin + ppt * tmin + jds + year+ I(jds^2) + I(tmin^2), all.data,
+            family = "poisson")
+# Negative binomial model
+fit2 <- glm.nb(Count ~ ppt + tmin + ppt * tmin + jds + year, all.data)
+fit3 <- glm.nb(Count ~ ppt + tmin + ppt * tmin + jds, all.data)
+fit4 <- glm.nb(Count ~ ppt + tmin + ppt * tmin, all.data)
+fit5 <- glm.nb(Count ~ ppt + tmin, all.data)
+fit6 <- glm.nb(Count ~ ppt + tmin + jds + year, all.data)
+# Polynomial NB model
+fit7 <- glm.nb(Count ~  ppt + tmin + ppt * tmin + jds + year + I(jds^2), all.data)
+fit8 <- glm.nb(Count ~  ppt + tmin + ppt * tmin + jds + year + I(jds^2) + I(tmin^2), all.data)
 
 summary(fit0)
-
-1 - pchisq(summary(fit0)$deviance,
-           summary(fit0)$df.residual) # GOF test really bad!
-
-
-# Poisson Model
-fit1 <- glm(Count ~ ppt + tmin + ppt * tmin + jds + year, all.data,
-            family = "poisson")
-
+summary(fit0p)
 summary(fit1)
-
-1 - pchisq(summary(fit1)$deviance,
-           summary(fit1)$df.residual) # GOF test really bad!
-
-poipred <- cbind(all.data,
-      Mean <- predict(fit1, newdata = all.data, type = "response"),
-      SE <- predict(fit1, newdata = all.data, type = "response", se.fit = T)$se.fit)
-
-
-# Negative binomial model
-fit2 <- glm.nb(Count ~ ppt + tmin + ppt * tmin + year + jds, all.data)
 summary(fit2)
+summary(fit3)
+summary(fit4)
+summary(fit5)
+summary(fit6)
+summary(fit7)
+summary(fit8)
+summary(fit10)
+summary(fit11)
+summary(fit12)
+summary(fit13)
+summary(fit14)
+summary(fit15)
+anova(fit2, fit8)
 
-# see if year as a whole is significant (it is)
-m2 <- update(fit2, . ~ . - jds)
-anova(fit2, m2)
+
+aics = c(2221.1, 2229.3, 2253.2, 2256, 2258.1, 2325.3, 6702, 6841, 7029, 7194, 7241, 6902, 6808, 8025)
+
+daics = aics - 2221.1
+ws = exp(-.5 * daics) / sum(exp(-.5 * daics)) 
+
+# get R to print decimals not exponetials
+options("scipen"=100, "digits"=4)
+round(ws, 3)
+
 
 # pairwise comparison of specific years 
 summary(glht(fit2, mcp(year = "Tukey")))
 
-1 - pchisq(summary(fit2)$deviance,
-           summary(fit2)$df.residual) # GOF test really good!
-
-anova(fit2, fit0) # significantly better than null model
 
 # predictions for plotting
-nbpred <- cbind(all.data,
-               Mean = predict(fit2, newdata = all.data, type = "response"),
-               SE = predict(fit2, newdata = all.data, type = "response", se.fit = T)$se.fit)
-
-
-xy <- data.frame(ppt = sort(rep(seq(1, 150, length.out = 100), 100)),
-                 tmin = rep(seq(-5, 25, length.out = 100), 100))
+xy <- data.frame(ppt = sort(rep(seq(1, 100, length.out = 100), 100)),
+                 tmin = rep(seq(-8, 25, length.out = 100), 100))
 ys <- sort(rep(1:6, 10000))
 ds <- sort(rep(all.data$jds, length.out = 60000))
 
@@ -160,12 +183,24 @@ xy <- cbind(rbind(xy, xy, xy, xy, xy, xy), ys, ds)
 colnames(xy)  <- c("ppt", "tmin", "year", "jds")
 xy[, 3] <- as.factor(xy[, 3])
 
-cpred <- predict(fit2, newdata = xy, type = "response")
+cpred <- predict(fit8, newdata = xy, type = "response")
+max(cpred)
 cpred[cpred > 80] <- 80
 cplot <- cbind(xy, cpred)
 
 contourplot(cpred ~ ppt * tmin, data = cplot, cuts = 40, labels = F,
             xlab = "Precipitation (mm)", ylab = "Min Temperature")
+
+plot_ly(x = cplot$ppt, y = cplot$tmin, z = cplot$cpred, type = "contour", contours = list(coloring = "Greens"))
+
+plot_ly(x = cplot$ppt, y = cplot$tmin, z = cplot$cpred, 
+        type = "contour", colors = "Greys",
+        contours = list(start = 0, end = 50, size = 2.5)) %>% 
+  colorbar(title = "Nightly Captures", titleside = "right",
+           tickvals = c(0, 10, 20, 30, 40, 50)) %>% 
+  layout(xaxis = list(title = "Precipitation (mm)"), 
+         yaxis = list(title = "Min Temperature"))
+
 
 # diagnostic plot from ver hoef and boveng
 res <- (nbpred$Count - nbpred$Mean) ^ 2
@@ -175,50 +210,80 @@ plot(nbpred$Mean, res)
 plot(nbpred$Count, nbpred$SE ^ 2, xlim = c(0, 20))
 
 
-# Polynomial NB model
-plys <- poly(all.data$ppt, 3)
-plys1 <- poly(all.data$tmin, 3)
-plys2 <- poly(all.data$jds, 3)
 
-fit3 <- glm.nb(Count ~ ppt + plys1 + ppt * tmin + plys2 + year, all.data)
-summary(fit3)
+cpred <- predict(fit3, type = "response")
+cpred[cpred > 80] <- 80
+cplot <- cbind(all.data, cpred)
 
-anova(fit2, fit3) # polynomial model not better!
+contourplot(cpred ~ ppt * tmin, data = cplot, cuts = 2, labels = T,
+            xlab = "Precipitation (mm)", ylab = "Min Temperature")
 
-exp(0.003) / (1 + exp(0.003))
-y <- function(x) x ^ 3 + x
-plot(1:100, y(1:100))
+plot_ly(x = cplot$ppt, y = cplot$tmin, z = cplot$cpred, 
+        type = "contour",autocontour = TRUE, line = list(smoothing = 0.85),
+        contours = list(coloring = "heatmap", showlabels = TRUE, start = 1, size = 3)) %>% 
+  colorbar(title = "Nightly Captures")
 
+
+#----------------------------
 # Simulated NB vs real data
-n <- 867
-data.nb <- rnbinom(n, size = fit3$theta, mu = exp(coef(fit3)[1]))
-
-
-
-fits <- hist(data.nb, breaks = 20)
-fits$counts <- sqrt(fits$counts) #sqrt frequencies for plotting
-
-
-sum(data.nb)
-sum(fits$counts)
-sum(all.data$Count)
-raw <- hist(all.data$Count, breaks = 70)
+raw <- hist(all.data$Count, breaks = -.5:89.5)
 raw$counts <- sqrt(raw$counts)   #sqrt frequencies for plotting
+n <- length(all.data$Count)
+
+par(cex.main = 1.5, mar = c(5, 6, 4, 5) + 0.1, mgp = c(3.5, 1, 0), cex.lab = 1.5, 
+    font.lab = 2, cex.axis = 1.3, bty = "n", las = 1)
+plot(raw, xlim = c(0, 100), ylim = c(0,30), col = "grey70", freq = T,
+      ylab = expression(sqrt(Frequency)), xlab = " ", main = " ", 
+      axes = FALSE)
+ps = seq(0, 90, by = 5)
+points(ps, sqrt(dnbinom(ps, size = fit8$theta, mu = exp(coef(fit8)[1])) * n), 
+       col = "black", pch = 16, cex = 0.8) 
+lines(0:90, sqrt(dnbinom(0:90, size = fit8$theta, mu = exp(coef(fit8)[1])) * n), 
+      col = "black", lty = "dashed", lwd = 2)
+
+axis(1)
+axis(2)
+mtext("Nightly Captures", side = 1, line = 2.8, cex = 1.5)
+legend(30,25, c('observed', 'predicted'), pch = c(15,16), lty = c(NA,"dashed"), 
+       col=c('grey70',"black"), pt.cex=1.5, lwd = 2, cex=1.5, bty='n') 
 
 
-# plot histograms side by side
-par(mfrow = c(1, 2))
-plot(raw,  xlim = c(0, 40), ylim = c(0, 30), ylab = expression(sqrt(Frequency)),
-     xlab = "Captures", main = "Obsevered Data")
-plot(fits, xlim = c(0, 40), ylim = c(0, 30), ylab = expression(sqrt(Frequency)),
-     xlab = "Captures", main = "Predicted Data")
 
-x <- fit2$model$Count
+
+
+
+
+
+data.nb <- rnbinom(n, size = fit8$theta, mu = exp(coef(fit8)[1]))
+# 
+# max(data.nb)
+# 
+fits <- hist(data.nb, breaks = 100)
+# fits$counts <- sqrt(fits$counts) #sqrt frequencies for plotting
+# 
+# 
+# sum(data.nb)
+# sum(fits$counts)
+# sum(all.data$Count)
+# raw <- hist(all.data$Count, breaks = -0.5:80.5)
+# raw$counts <- sqrt(raw$counts)   #sqrt frequencies for plotting
+# 
+# 
+# # plot histograms side by side
+# par(mfrow = c(1, 2))
+# plot(raw, ylim = c(0, 30), ylab = expression(sqrt(Frequency)),
+#      xlab = "Captures", main = "Obsevered Data")
+# plot(fits, xlim = c(0, 40), ylim = c(0, 30), ylab = expression(sqrt(Frequency)),
+#      xlab = "Captures", main = "Predicted Data")
+
+
+
+x <- fit8$model$Count
 # rootogram to assess model fit
 rootogram(~x, dfun = function(x)
-          dnbinom(x, size = fit2$theta, mu = exp(coef(fit2)[1])),
+          dnbinom(x, size = fit8$theta, mu = exp(coef(fit8)[1])),
                   probability = F, transormation = sqrt)
-rootogram(fit1)
+rootogram(fit8)
 mean(poipred$SE)
 mean(nbpred$SE)
 # Here you see the 'danger' of ignoring overdispersion in the Poisson model. 
@@ -228,11 +293,11 @@ mean(nbpred$SE)
 
 # chi sq test to see how good the model (fit2) is (it's good!)
 raw$counts ^ 2
-obs <- c(763,  31,  22,  11,  9,   3,   28)
+obs <- c(663,  59,  31,  24,  16,   14, 10, 9, 6, 10,  50)
 sum(obs)
 
-fits$counts ^ 2
-exs <- c(669,  40,  23,  22,  16,   13, 84)
+fits$counts
+exs <- c(619,  56,  35,  22,  18,   13, 12, 11, 7, 12, 87)
 sum(exs)
 cbind(obs, exs)
 
@@ -251,8 +316,47 @@ plotResiduals(all.data$tmin,  simulationOutput$scaledResiduals)
 
 
 
+# visreg(fit2, "ppt", by = "tmin", scale = "response")
+# 
+# visreg(fit2, "tmin", type = "conditional", scale = "response", gg = T, partial = T)
+# visreg(fit2, "ppt", type = "conditional", scale = "response", by = "tmin", gg = T, partial = T)
+# summary(fit2)
+# 
+# visreg2d(fit3, "ppt", "tmin", xlab = "Precipitation (mm)", ylab = "Minimum Temperature", main = "")
+# 
+# visreg(fit3, "tmin", partial = T, by = "ppt")
+# visreg2d(fit2, "ppt", "jds")
+# visreg2d(fit3, "ppt", "tmin")
+
+visreg(fit8, "jds", axes = F, xlab = "Day of Year", ylab = "Relative Count")
+visreg2d(fit2, "ppt", "tmin")
+visreg2d(fit8, "ppt", "tmin", key.axes = axis(2,labels = FALSE),
+         main = "", xlab = "", ylab = "")
+mtext("Precipitation / mm", side = 1, line = 3, cex = 1.5, adj = 0.2)
+mtext(expression(paste("Minimum Temperature / ",degree,"C")), side = 2, line = 2, cex = 1.5)
 
 
+
+visreg(fit8)
+
+
+
+
+#col = gray.colors(20)
+
+
+# visreg(fit3, "ppt", partial = F, by = "tmin", scale = "response")
+# visreg2d(fit3, "ppt", "tmin", scale = "response")
+# visreg(fit3, scale = "response")
+# summary(fit3)
+# 
+# visreg(fit3, "ppt", scale = "response")
+# 
+# 
+# visreg2d(fit3, "jds", "ppt", scale = "response")
+# visreg2d(fit3, "jds", "tmin", scale = "response")
+# visreg2d(fit3, "ppt", "year", scale = "response")
+# visreg2d(fit3, "tmin", "year", scale = "response")
 
 #---------------------------------------------------------
 # cross correlation lag analysis (need to be every day!!)
