@@ -10,6 +10,7 @@ library(vcd)
 library(plotly)
 library(visreg)
 library(AICcmodavg)
+library(RColorBrewer)
 
 # automated format check and debug tool
 lint("Phenology_model.R")
@@ -101,6 +102,24 @@ for (i in 1:length(all.data$jds)) {
 all.data$jds <- all.data$jds - 254
 min(all.data$jds)
 
+all.data[all.data$ppt > 200,]
+all.data = all.data[-526,]
+
+max(all.data$tmin)
+min(all.data$tmin)
+mean(all.data$tmin)
+max(all.data$ppt)
+min(all.data$ppt)
+mean(all.data$ppt)
+
+x = all.data[all.data$Count > 0, ]
+max(x$tmin)
+min(x$tmin)
+mean(x$tmin)
+max(x$ppt)
+min(x$ppt)
+mean(x$ppt)
+
 
 # proportion of individuals histogram
 Nsum <- by(all.data$Count, INDICES = all.data$year, sum)
@@ -113,56 +132,43 @@ plot(all.data$Date, prop, type = "h",
 #Analysis
 #------------
 
-# Null Model
-fit0 <- glm.nb(Count ~ 1, all.data)
-fit0p <- glm(Count ~ 1, all.data, family = "poisson")
+varnames <- c("ppt", "tmin", "ppt * tmin", "jds", "year", "I(jds^2)", "I(tmin^2)", "I(ppt^2)")
+rhs <- unlist( sapply(1:length(varnames),function(k) apply(combn(varnames,k),2,paste,collapse=" + ") ) )
+formulae <- as.formula( quote( paste("Count ~", rhs) ) )
+
+aics = vector()
+for(i in 1:length(formulae)){
+  fit = glm.nb(formulae[i], all.data)
+  aics[i] = fit$aic
+}
+
+
+aicsP = vector()
+for(i in 1:length(formulae)){
+  fit = glm(formulae[i], all.data, family = "poisson")
+  aicsP[i] = fit$aic
+}
+
 # Poisson Model
-fit10 <- glm(Count ~ ppt + tmin + ppt * tmin + jds + year, all.data,
-            family = "poisson")
-fit11 <- glm(Count ~ ppt + tmin + ppt * tmin + jds, all.data,
-            family = "poisson")
-fit12 <- glm(Count ~ ppt + tmin + ppt * tmin, all.data,
-            family = "poisson")
-fit13 <- glm(Count ~ ppt + tmin, all.data,
-            family = "poisson")
-fit14 <- glm(Count ~ ppt + tmin + jds + year, all.data,
-            family = "poisson")
-fit15 <- glm(Count ~  ppt + tmin + ppt * tmin + jds + year + I(jds^2), all.data, family = "poisson")
-fit1 <- glm(Count ~ ppt + tmin + ppt * tmin + jds + year+ I(jds^2) + I(tmin^2), all.data,
-            family = "poisson")
+fit1 <- glm(formulae[252], all.data, family = "poisson")
+
 # Negative binomial model
-fit2 <- glm.nb(Count ~ ppt + tmin + ppt * tmin + jds + year, all.data)
-fit3 <- glm.nb(Count ~ ppt + tmin + ppt * tmin + jds, all.data)
-fit4 <- glm.nb(Count ~ ppt + tmin + ppt * tmin, all.data)
-fit5 <- glm.nb(Count ~ ppt + tmin, all.data)
-fit6 <- glm.nb(Count ~ ppt + tmin + jds + year, all.data)
-# Polynomial NB model
-fit7 <- glm.nb(Count ~  ppt + tmin + ppt * tmin + jds + year + I(jds^2), all.data)
-fit8 <- glm.nb(Count ~  ppt + tmin + ppt * tmin + jds + year + I(jds^2) + I(tmin^2), all.data)
-
-summary(fit0)
-summary(fit0p)
-summary(fit1)
+fit2 <- glm.nb(formulae[252], all.data)
 summary(fit2)
+
+
+fit3 <- glm.nb(Count ~ ppt + tmin + jds + year + I(jds^2) + I(tmin^2) + I(ppt^2) +jds*ppt, all.data)
 summary(fit3)
-summary(fit4)
-summary(fit5)
-summary(fit6)
-summary(fit7)
-summary(fit8)
-summary(fit10)
-summary(fit11)
-summary(fit12)
-summary(fit13)
-summary(fit14)
-summary(fit15)
-anova(fit2, fit8)
 
 
-aics = c(2221.1, 2229.3, 2253.2, 2256, 2258.1, 2325.3, 6702, 6841, 7029, 7194, 7241, 6902, 6808, 8025)
 
-daics = aics - 2221.1
+# AIC weights
+aics = unique(aics)
+daics = aics - aics[162]
+sort(daics)
 ws = exp(-.5 * daics) / sum(exp(-.5 * daics)) 
+sort(ws)
+
 
 # get R to print decimals not exponetials
 options("scipen"=100, "digits"=4)
@@ -174,7 +180,7 @@ summary(glht(fit2, mcp(year = "Tukey")))
 
 
 # predictions for plotting
-xy <- data.frame(ppt = sort(rep(seq(1, 100, length.out = 100), 100)),
+xy <- data.frame(ppt = sort(rep(seq(1, 150, length.out = 100), 100)),
                  tmin = rep(seq(-8, 25, length.out = 100), 100))
 ys <- sort(rep(1:6, 10000))
 ds <- sort(rep(all.data$jds, length.out = 60000))
@@ -183,21 +189,20 @@ xy <- cbind(rbind(xy, xy, xy, xy, xy, xy), ys, ds)
 colnames(xy)  <- c("ppt", "tmin", "year", "jds")
 xy[, 3] <- as.factor(xy[, 3])
 
-cpred <- predict(fit8, newdata = xy, type = "response")
+cpred <- predict(fit2, newdata = xy, type = "response")
 max(cpred)
 cpred[cpred > 80] <- 80
 cplot <- cbind(xy, cpred)
 
-contourplot(cpred ~ ppt * tmin, data = cplot, cuts = 40, labels = F,
+contourplot(cpred ~ ppt * tmin, data = cplot, cuts = 230, labels = T,
             xlab = "Precipitation (mm)", ylab = "Min Temperature")
 
 plot_ly(x = cplot$ppt, y = cplot$tmin, z = cplot$cpred, type = "contour", contours = list(coloring = "Greens"))
 
 plot_ly(x = cplot$ppt, y = cplot$tmin, z = cplot$cpred, 
         type = "contour", colors = "Greys",
-        contours = list(start = 0, end = 50, size = 2.5)) %>% 
-  colorbar(title = "Nightly Captures", titleside = "right",
-           tickvals = c(0, 10, 20, 30, 40, 50)) %>% 
+        contours = list(start = 0, end = 10, size = 1)) %>% 
+  colorbar(title = "Nightly Captures", titleside = "right") %>% 
   layout(xaxis = list(title = "Precipitation (mm)"), 
          yaxis = list(title = "Min Temperature"))
 
@@ -236,9 +241,9 @@ plot(raw, xlim = c(0, 100), ylim = c(0,30), col = "grey70", freq = T,
       ylab = expression(sqrt(Frequency)), xlab = " ", main = " ", 
       axes = FALSE)
 ps = seq(0, 90, by = 5)
-points(ps, sqrt(dnbinom(ps, size = fit8$theta, mu = exp(coef(fit8)[1])) * n), 
+points(ps, sqrt(dnbinom(ps, size = fit2$theta, mu = exp(sum(coef(fit2)[c(1:4, 10:12)]))) * n), 
        col = "black", pch = 16, cex = 0.8) 
-lines(0:90, sqrt(dnbinom(0:90, size = fit8$theta, mu = exp(coef(fit8)[1])) * n), 
+lines(0:90, sqrt(dnbinom(0:90, size = fit2$theta, mu = exp(sum(coef(fit2)[c(1:4, 10:12)]))) * n), 
       col = "black", lty = "dashed", lwd = 2)
 
 axis(1)
@@ -250,11 +255,9 @@ legend(30,25, c('observed', 'predicted'), pch = c(15,16), lty = c(NA,"dashed"),
 
 
 
+1 - pchisq(summary(fit2)$deviance,
+           summary(fit2)$df.residual)
 
-
-
-
-data.nb <- rnbinom(n, size = fit8$theta, mu = exp(coef(fit8)[1]))
 # 
 # max(data.nb)
 # 
@@ -291,21 +294,10 @@ mean(nbpred$SE)
 # which increases the likelihood of incorrectly detecting a significant effect in the Poisson model.
 
 
-# chi sq test to see how good the model (fit2) is (it's good!)
-raw$counts ^ 2
-obs <- c(663,  59,  31,  24,  16,   14, 10, 9, 6, 10,  50)
-sum(obs)
-
-fits$counts
-exs <- c(619,  56,  35,  22,  18,   13, 12, 11, 7, 12, 87)
-sum(exs)
-cbind(obs, exs)
-
-chisq.test(cbind(obs, exs))
 
 
 # check residual plots
-simulationOutput <- simulateResiduals(fittedModel = fit2, n = 1000)
+simulationOutput <- simulateResiduals(fittedModel = fit8, n = 1000)
 plotSimulatedResiduals(simulationOutput = simulationOutput)
 
 
@@ -324,26 +316,25 @@ plotResiduals(all.data$tmin,  simulationOutput$scaledResiduals)
 # 
 # visreg2d(fit3, "ppt", "tmin", xlab = "Precipitation (mm)", ylab = "Minimum Temperature", main = "")
 # 
-# visreg(fit3, "tmin", partial = T, by = "ppt")
+# visreg(fit8, "jds", partial = T, by = "tmin")
 # visreg2d(fit2, "ppt", "jds")
 # visreg2d(fit3, "ppt", "tmin")
 
 visreg(fit8, "jds", axes = F, xlab = "Day of Year", ylab = "Relative Count")
-visreg2d(fit2, "ppt", "tmin")
-visreg2d(fit8, "ppt", "tmin", key.axes = axis(2,labels = FALSE),
+visreg2d(fit8, "ppt", "tmin", scale = "response")
+visreg2d(fit2, "ppt", "tmin", scale = "response", key.axes = axis(2, labels = F), 
          main = "", xlab = "", ylab = "")
 mtext("Precipitation / mm", side = 1, line = 3, cex = 1.5, adj = 0.2)
-mtext(expression(paste("Minimum Temperature / ",degree,"C")), side = 2, line = 2, cex = 1.5)
+mtext(expression(paste("Minimum Temperature / ",degree,"C")), side = 2, line = 3, cex = 1.5, las = 0)
 
 
+visreg(fit2, scale = "response")
 
-visreg(fit8)
-
-
-
+visreg2d(fit2, "ppt", "tmin", scale = "response", key.axes = axis(2, labels = T), 
+         main = "", xlab = "", ylab = "", type = "contrast", nn = 100, 
+         col = colorRampPalette(brewer.pal(9,"Greys"))(28))
 
 #col = gray.colors(20)
-
 
 # visreg(fit3, "ppt", partial = F, by = "tmin", scale = "response")
 # visreg2d(fit3, "ppt", "tmin", scale = "response")
